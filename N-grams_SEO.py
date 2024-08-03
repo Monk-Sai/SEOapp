@@ -83,12 +83,16 @@ def seo_analysis(url, exclude_words):
     keywords_df = pd.DataFrame(keywords, columns=['Keyword', 'Frequency'])
     bigrams_df = pd.DataFrame(bi_grams_freq, columns=['Bigram', 'Frequency'])
 
+
+
     # Display the results in Streamlit tabs
     tab1, tab2 = st.tabs(['N-gram Keywords', 'Bi-gram Keywords'])
     with tab1:
-        st.dataframe(keywords_df)
+        st.dataframe(keywords_df.style.set_properties(**{'text-align': 'left'}),
+                     width=800, height=1200)
     with tab2:
-        st.dataframe(bigrams_df)
+        st.dataframe(bigrams_df.style.set_properties(**{'text-align': 'left'}),
+                     width=800, height=1200)
 
 # Call the function to see the results
 if url:
