@@ -73,11 +73,11 @@ def seo_analysis(url, exclude_words):
     # Calculate n-grams and frequencies
     bi_grams = ngrams(new_words, 2)
     freq_bigrams = nltk.FreqDist(bi_grams)
-    bi_grams_freq = freq_bigrams.most_common(26)
+    bi_grams_freq = freq_bigrams.most_common(61)
 
     # Extract the frequency of the words and get the 10 most common ones
     freq = nltk.FreqDist(new_words)
-    keywords = freq.most_common(26)
+    keywords = freq.most_common(61)
 
     # Convert lists to DataFrames
     keywords_df = pd.DataFrame(keywords, columns=['Keyword', 'Frequency'])
