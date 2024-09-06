@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keyword Mind Map</title>
+</head>
+<body>
+    <h1>Upload Your Keyword CSV File</h1>
+    <form action="/" method="post" enctype="multipart/form-data">
+        <input type="file" name="file">
+        <input type="submit" value="Generate Mind Map">
+    </form>
+
+    {% if image_generated %}
+        <h2>Generated Mind Map:</h2>
+        <div id="maplot">
+            <img src="{{ url_for('plot') }}" alt="Mind Map">
+        </div>
+    {% endif %}
+</body>
+</html>
