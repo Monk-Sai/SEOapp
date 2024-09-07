@@ -4,9 +4,10 @@ import networkx as nx
 import matplotlib
 matplotlib.use('Agg')  # Use the Agg backend for Matplotlib
 import matplotlib.pyplot as plt
-from flask import Flask, render_template, request, send_file
+from flask import Flask, render_template, request, jsonify
 from nltk.corpus import wordnet
 import nltk
+import base64
 
 nltk.download('wordnet')
 
@@ -29,15 +30,11 @@ def create_mindmap(keywords):
             G.add_node(related_keyword)
             G.add_edge(keyword, related_keyword)  # Connect related keywords
 
-    # Create the graph image
-    plt.figure(figsize=(12, 12))
-    pos = nx.spring_layout(G)
-    nx.draw(G, pos, with_labels=True, node_color='lightblue', font_size=8, node_size=3000, font_weight='bold')
+    # Convert the graph to a data structure that can be easily serialized to JSON
+    nodes = [{"id": n} for n in G.nodes()]
+    edges = [{"source": u, "target": v} for u, v in G.edges()]
 
-    img = io.BytesIO()
-    plt.savefig(img, format='png')
-    img.seek(0)
-    return img
+    return {"nodes": nodes, "edges": edges}
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -45,17 +42,21 @@ def index():
         file = request.files['file']
         df = pd.read_csv(file)
 
-        # Debug: Check if 'Keywords' column exists
         if 'Keywords' not in df.columns:
-            return "Error: 'Keywords' column not found in the uploaded CSV file."
+            return jsonify({"error": "'Keywords' column not found in the uploaded CSV file."}), 400
 
         keywords = df['Keywords'].tolist()
 
-        # Generate the mind map image
-        img = create_mindmap(keywords)
+        # Generate the mind map data
+        mindmap_data = create_mindmap(keywords)
 
-        return send_file(img, mimetype='image/png', as_attachment=False, download_name='mindmap.png')
+        # Debug: Print the generated data
+        print(mindmap_data)
+
+        # Return the data as JSON
+        return jsonify(mindmap_data)
     return render_template('index.html')
+
 
 if __name__ == '__main__':
     app.run(debug=True)
