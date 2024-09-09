@@ -2,54 +2,102 @@ import pandas as pd
 import networkx as nx
 import json
 from flask import Flask, render_template, request, jsonify
-from nltk.corpus import wordnet
 import nltk
-from gensim.models import Word2Vec
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
+from gensim.models import KeyedVectors
+import gensim.downloader as api
+from sklearn.cluster import DBSCAN
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import LatentDirichletAllocation
+import numpy as np
+from rake_nltk import Rake
 
-nltk.download('wordnet')
 nltk.download('punkt')
+nltk.download('punkt_tab')
 nltk.download('stopwords')
+nltk.download('wordnet')
 
 app = Flask(__name__)
 
-def train_word2vec_model(keywords):
-    stop_words = set(stopwords.words('english'))
-    tokenized_keywords = [word_tokenize(kw.lower()) for kw in keywords]
-    filtered_keywords = [[word for word in words if word.isalnum() and word not in stop_words] for words in tokenized_keywords]
-    model = Word2Vec(sentences=filtered_keywords, vector_size=100, window=5, min_count=1, workers=4)
-    return model
+# Load pre-trained word embeddings
+word_vectors = api.load('fasttext-wiki-news-subwords-300')
 
-def get_related_keywords(keyword, model, keywords):
-    related_keywords = []
-    if keyword in model.wv:
-        similar_words = model.wv.most_similar(keyword, topn=5)
-        related_keywords = [word for word, similarity in similar_words if word in keywords]
-    return related_keywords
+def preprocess_text(text):
+    stop_words = set(stopwords.words('english'))
+    tokens = word_tokenize(text.lower())
+    return [token for token in tokens if token.isalnum() and token not in stop_words]
+
+def extract_keywords(text):
+    rake = Rake()
+    rake.extract_keywords_from_text(text)
+    return rake.get_ranked_phrases()[:10]  # Get top 10 keywords/phrases
+
+def get_word_vector(word):
+    if word in word_vectors:
+        return word_vectors[word]
+    return np.zeros(300)  # Return zero vector if word not in vocabulary
+
+def create_keyword_vectors(keywords):
+    return np.array([get_word_vector(keyword) for keyword in keywords])
+
+def cluster_keywords(keyword_vectors):
+    dbscan = DBSCAN(eps=0.1, min_samples=9)
+    clusters = dbscan.fit_predict(keyword_vectors)
+    return clusters
+
+def get_word_vector(phrase):
+    words = phrase.split()
+    if len(words) == 1:
+        return word_vectors[phrase] if phrase in word_vectors else np.zeros(300)
+    else:
+        return np.mean([word_vectors[word] for word in words if word in word_vectors] or [np.zeros(300)], axis=0)
+
+def create_topic_model(keywords, n_topics=5):
+    vectorizer = TfidfVectorizer()
+    tfidf_matrix = vectorizer.fit_transform(keywords)
+    
+    lda = LatentDirichletAllocation(n_components=n_topics, random_state=42)
+    lda.fit(tfidf_matrix)
+    
+    topic_keywords = []
+    feature_names = vectorizer.get_feature_names_out()
+    for topic_idx, topic in enumerate(lda.components_):
+        top_keywords = [feature_names[i] for i in topic.argsort()[:-10 - 1:-1]]
+        topic_keywords.append(top_keywords)
+    
+    return topic_keywords
 
 def create_mindmap(keywords):
-    G = nx.DiGraph()
-    model = train_word2vec_model(keywords)
-
-    for keyword in keywords:
-        G.add_node(keyword)
-        related_keywords = get_related_keywords(keyword, model, keywords)
-        for related_keyword in related_keywords:
-            G.add_edge(keyword, related_keyword)  # Add edge from keyword to related_keyword
-
-    # Convert to hierarchical format
-    nodes = []
-    edges = []
-    root_nodes = set(G.nodes) - set(n for _, n in G.edges)
-
-    for node in G.nodes:
-        nodes.append({"id": node})
+    preprocessed_keywords = [' '.join(preprocess_text(kw)) for kw in keywords]
+    extracted_keywords = [item for sublist in [extract_keywords(kw) for kw in preprocessed_keywords] for item in sublist]
     
-    for source, target in G.edges:
-        edges.append({"source": source, "target": target})
-
-    return {"nodes": nodes, "edges": edges, "root": list(root_nodes)[0] if root_nodes else None}
+    keyword_vectors = create_keyword_vectors(extracted_keywords)
+    clusters = cluster_keywords(keyword_vectors)
+    topics = create_topic_model(extracted_keywords)
+    
+    G = nx.Graph()
+    
+    for i, keyword in enumerate(extracted_keywords):
+        G.add_node(keyword, cluster=int(clusters[i]))
+    
+    # Add edges based on similarity
+    for i in range(len(extracted_keywords)):
+        for j in range(i + 1, len(extracted_keywords)):
+            similarity = np.dot(keyword_vectors[i], keyword_vectors[j]) / (np.linalg.norm(keyword_vectors[i]) * np.linalg.norm(keyword_vectors[j]))
+            if similarity > 0.9:  # Adjust threshold as needed
+                G.add_edge(extracted_keywords[i], extracted_keywords[j], weight=float(similarity))  # Convert to float
+    
+    # Convert to hierarchical format
+    nodes = [{"id": node, "cluster": data['cluster']} for node, data in G.nodes(data=True)]
+    edges = [{"source": u, "target": v, "weight": float(data['weight'])} for u, v, data in G.edges(data=True)]
+    
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "topics": topics,
+        "root": extracted_keywords[0] if extracted_keywords else None
+    }
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
