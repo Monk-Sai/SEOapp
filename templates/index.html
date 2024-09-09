@@ -5,16 +5,40 @@
     <title>Interactive Mind Map</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
         .node {
             cursor: pointer;
         }
         .link {
+            fill: none;
             stroke: #999;
             stroke-opacity: 0.6;
+            stroke-width: 2px;
         }
         .node text {
             pointer-events: none;
             font: 10px sans-serif;
+        }
+        .node circle {
+            fill: #1f77b4;
+            stroke: #fff;
+            stroke-width: 2px;
+        }
+        svg {
+            width: 100%;
+            height: 90vh; /* Adjust height to be responsive */
+        }
+        #uploadForm {
+            margin-bottom: 20px;
+        }
+        #loading {
+            display: none;
+            font-size: 18px;
+            color: #1f77b4;
         }
     </style>
 </head>
@@ -22,8 +46,9 @@
     <form id="uploadForm" method="post" enctype="multipart/form-data">
         <input type="file" name="file" id="fileInput">
         <button type="submit">Generate Mind Map</button>
+        <span id="loading">Loading...</span>
     </form>
-    <svg width="1000" height="800"></svg>
+    <svg></svg>
     <script>
         document.getElementById('uploadForm').onsubmit = function(event) {
             event.preventDefault();
@@ -31,87 +56,107 @@
             const formData = new FormData();
             formData.append('file', fileInput.files[0]);
 
+            const loadingIndicator = document.getElementById('loading');
+            loadingIndicator.style.display = 'inline';  // Show loading indicator
+
             fetch('/', {
                 method: 'POST',
                 body: formData
             })
             .then(response => response.json())
             .then(data => {
+                loadingIndicator.style.display = 'none';  // Hide loading indicator
+                if (!data.nodes || !data.edges || !data.root) {
+                    alert("No valid data to create a mind map.");
+                    return;
+                }
+
                 const svg = d3.select("svg"),
-                    width = +svg.attr("width"),
-                    height = +svg.attr("height");
+                    width = window.innerWidth - 20,
+                    height = window.innerHeight - 20;
 
-                const simulation = d3.forceSimulation()
-                    .force("link", d3.forceLink().id(d => d.id).distance(100))
-                    .force("charge", d3.forceManyBody().strength(-100))
-                    .force("center", d3.forceCenter(width / 2, height / 2))
-                    .force("collide", d3.forceCollide().radius(40));  // Prevents nodes from overlapping
+                svg.attr("width", width)
+                   .attr("height", height);
 
-                const link = svg.append("g")
-                    .attr("class", "links")
-                    .selectAll("line")
-                    .data(data.edges)
-                    .enter().append("line")
-                    .attr("class", "link")
-                    .attr("stroke-width", 2);  // Adjust the link width
+                svg.selectAll("*").remove();  // Clear previous SVG content
 
-                const node = svg.append("g")
-                    .attr("class", "nodes")
+                const treeLayout = d3.tree().size([height, width - 160]);
+                const root = d3.hierarchy({ id: data.root, children: buildHierarchy(data.nodes, data.edges) });
+                const treeData = treeLayout(root);
+
+                // Define zoom behavior
+                const zoom = d3.zoom()
+                    .scaleExtent([0.1, 3])  // Define zoom scale limits
+                    .on("zoom", (event) => {
+                        svg.select("g").attr("transform", event.transform);
+                    });
+
+                svg.call(zoom);
+
+                const g = svg.append("g")
+                    .attr("transform", "translate(80,0)");
+
+                // Draw links (edges)
+                g.append("g")
+                    .attr("fill", "none")
+                    .attr("stroke", "#555")
+                    .attr("stroke-width", "1.5px")
+                    .selectAll("path")
+                    .data(treeData.links())
+                    .enter().append("path")
+                    .attr("d", d => `
+                        M${d.source.y},${d.source.x}
+                        C${(d.source.y + d.target.y) / 2},${d.source.x}
+                        ${(d.source.y + d.target.y) / 2},${d.target.x}
+                        ${d.target.y},${d.target.x}
+                    `);
+
+                // Draw nodes
+                const node = g.append("g")
                     .selectAll("g")
-                    .data(data.nodes)
+                    .data(treeData.descendants())
                     .enter().append("g")
-                    .attr("class", "node")
-                    .call(d3.drag()
-                        .on("start", dragstarted)
-                        .on("drag", dragged)
-                        .on("end", dragended));
+                    .attr("transform", d => `translate(${d.y},${d.x})`);
 
                 node.append("circle")
-                    .attr("r", 15)
+                    .attr("r", 4.5)
                     .attr("fill", "#1f77b4");
 
                 node.append("text")
-                    .attr("x", 20)
-                    .attr("y", 3)
-                    .text(d => d.id)
-                    .style("font-size", "12px");
-
-                simulation
-                    .nodes(data.nodes)
-                    .on("tick", ticked);
-
-                simulation.force("link")
-                    .links(data.edges);
-
-                function ticked() {
-                    link
-                        .attr("x1", d => d.source.x)
-                        .attr("y1", d => d.source.y)
-                        .attr("x2", d => d.target.x)
-                        .attr("y2", d => d.target.y);
-
-                    node
-                        .attr("transform", d => `translate(${d.x},${d.y})`);
-                }
-
-                function dragstarted(event, d) {
-                    if (!event.active) simulation.alphaTarget(0.3).restart();
-                    d.fx = d.x;
-                    d.fy = d.y;
-                }
-
-                function dragged(event, d) {
-                    d.fx = event.x;
-                    d.fy = event.y;
-                }
-
-                function dragended(event, d) {
-                    if (!event.active) simulation.alphaTarget(0);
-                    d.fx = null;
-                    d.fy = null;
-                }
+                    .attr("dy", "0.32em")
+                    .attr("x", d => d.children ? -8 : 8)
+                    .style("text-anchor", d => d.children ? "end" : "start")
+                    .text(d => d.data.id);
+            })
+            .catch(error => {
+                loadingIndicator.style.display = 'none';  // Hide loading indicator
+                alert("An error occurred while generating the mind map.");
+                console.error("Error:", error);
             });
         };
+
+        // Helper function to build hierarchical data from nodes and edges
+        function buildHierarchy(nodes, edges) {
+            const nodeMap = new Map(nodes.map(node => [node.id, { id: node.id, children: [] }]));
+
+            edges.forEach(edge => {
+                if (nodeMap.has(edge.source) && nodeMap.has(edge.target)) {
+                    nodeMap.get(edge.source).children.push(nodeMap.get(edge.target));
+                }
+            });
+
+            return Array.from(nodeMap.values()).filter(node => !edges.some(edge => edge.target === node.id));
+        }
+
+        // Adjust SVG size on window resize
+        window.addEventListener('resize', () => {
+            const svg = d3.select("svg"),
+                width = window.innerWidth - 20,
+                height = window.innerHeight - 20;
+
+            svg.attr("width", width)
+               .attr("height", height);
+        });
     </script>
 </body>
 </html>

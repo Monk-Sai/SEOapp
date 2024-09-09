@@ -1,40 +1,55 @@
 import pandas as pd
-import io
 import networkx as nx
-import matplotlib
-matplotlib.use('Agg')  # Use the Agg backend for Matplotlib
-import matplotlib.pyplot as plt
+import json
 from flask import Flask, render_template, request, jsonify
 from nltk.corpus import wordnet
 import nltk
-import base64
+from gensim.models import Word2Vec
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
 
 nltk.download('wordnet')
+nltk.download('punkt')
+nltk.download('stopwords')
 
 app = Flask(__name__)
 
-def get_related_keywords(keyword):
-    synonyms = []
-    for syn in wordnet.synsets(keyword):
-        for lemma in syn.lemmas():
-            synonyms.append(lemma.name())
-    return list(set(synonyms))
+def train_word2vec_model(keywords):
+    stop_words = set(stopwords.words('english'))
+    tokenized_keywords = [word_tokenize(kw.lower()) for kw in keywords]
+    filtered_keywords = [[word for word in words if word.isalnum() and word not in stop_words] for words in tokenized_keywords]
+    model = Word2Vec(sentences=filtered_keywords, vector_size=100, window=5, min_count=1, workers=4)
+    return model
+
+def get_related_keywords(keyword, model, keywords):
+    related_keywords = []
+    if keyword in model.wv:
+        similar_words = model.wv.most_similar(keyword, topn=5)
+        related_keywords = [word for word, similarity in similar_words if word in keywords]
+    return related_keywords
 
 def create_mindmap(keywords):
-    G = nx.Graph()
+    G = nx.DiGraph()
+    model = train_word2vec_model(keywords)
 
     for keyword in keywords:
-        G.add_node(keyword)  # Add main keyword
-        related_keywords = get_related_keywords(keyword)
+        G.add_node(keyword)
+        related_keywords = get_related_keywords(keyword, model, keywords)
         for related_keyword in related_keywords:
-            G.add_node(related_keyword)
-            G.add_edge(keyword, related_keyword)  # Connect related keywords
+            G.add_edge(keyword, related_keyword)  # Add edge from keyword to related_keyword
 
-    # Convert the graph to a data structure that can be easily serialized to JSON
-    nodes = [{"id": n} for n in G.nodes()]
-    edges = [{"source": u, "target": v} for u, v in G.edges()]
+    # Convert to hierarchical format
+    nodes = []
+    edges = []
+    root_nodes = set(G.nodes) - set(n for _, n in G.edges)
 
-    return {"nodes": nodes, "edges": edges}
+    for node in G.nodes:
+        nodes.append({"id": node})
+    
+    for source, target in G.edges:
+        edges.append({"source": source, "target": target})
+
+    return {"nodes": nodes, "edges": edges, "root": list(root_nodes)[0] if root_nodes else None}
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -46,17 +61,10 @@ def index():
             return jsonify({"error": "'Keywords' column not found in the uploaded CSV file."}), 400
 
         keywords = df['Keywords'].tolist()
-
-        # Generate the mind map data
         mindmap_data = create_mindmap(keywords)
 
-        # Debug: Print the generated data
-        print(mindmap_data)
-
-        # Return the data as JSON
         return jsonify(mindmap_data)
     return render_template('index.html')
-
 
 if __name__ == '__main__':
     app.run(debug=True)
