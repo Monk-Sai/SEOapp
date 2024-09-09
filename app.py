@@ -42,7 +42,7 @@ def create_keyword_vectors(keywords):
     return np.array([get_word_vector(keyword) for keyword in keywords])
 
 def cluster_keywords(keyword_vectors):
-    dbscan = DBSCAN(eps=0.1, min_samples=9)
+    dbscan = DBSCAN(eps=0.4, min_samples=6)
     clusters = dbscan.fit_predict(keyword_vectors)
     return clusters
 
