@@ -1,8 +1,5 @@
 # Sample workflow for building and deploying a Jekyll site to GitHub Pages
 name: Deploy Jekyll with GitHub Pages dependencies preinstalled
-uses: actions/setup-python@v2
-  with:
-    python-version: '3.9'
 
 on:
   # Runs on pushes targeting the default branch
