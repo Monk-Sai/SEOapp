@@ -3,3 +3,8 @@ beautifulsoup4
 nltk
 streamlit
 pandas
+networkx
+flask
+gensim
+sklearn
+numpy
