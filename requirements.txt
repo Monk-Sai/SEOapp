@@ -8,3 +8,4 @@ flask
 gensim
 scikit-learn
 numpy
+rake_nltk
