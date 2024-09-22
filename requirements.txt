@@ -6,5 +6,5 @@ pandas
 networkx
 flask
 gensim
-sklearn
+scikit-learn
 numpy
